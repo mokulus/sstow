@@ -27,28 +27,11 @@ join(const char* s1, const char* s2)
 	size_t len = strlen(s1) + strlen(s2) + 2; /* / and null */
 	char* str = malloc(len);
 	if(!str)
-		die("malloc join");
+		die("malloc join %s %s", s1, s2);
 	strcpy(str, s1);
 	strcat(str, "/");
 	strcat(str, s2);
 	return str;
-}
-
-struct dirent
-get_dirent(const char* path) {
-	DIR* dir = opendir(path);
-	if(!dir)
-		die("opendir %s", path);
-	struct dirent* d;
-	struct dirent ret;
-	while((d = readdir(dir))) {
-		if(!strcmp(d->d_name, ".")) {
-			ret = *d;
-			break;
-		}
-	}
-	closedir(dir);
-	return ret;
 }
 
 void
@@ -183,6 +166,7 @@ main(int argc, const char** argv)
 		delete_flag = 1;
 	}
 	else die("argv[1] %s", argv[1]);
+
 	const char* target_name = argv[2];
 	const char* root_name = argv[3];
 
