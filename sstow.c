@@ -1,4 +1,3 @@
-#define _DEFAULT_SOURCE
 #include <stdlib.h>
 #include <dirent.h>
 #include <string.h>
@@ -7,8 +6,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "arg.h"
 
-int verbose = 1;
+char* argv0;
+
+int verbose = 0;
 int dry_run = 0;
 
 void
@@ -143,8 +145,7 @@ delete(struct dirnode* queue,
 			if(verbose)
 				printf("rm -d %s\n", target_path);
 			if(!dry_run)
-				if(rmdir(target_path) == -1)
-					die("rmdir %s", target_path);
+				rmdir(target_path); /* can fail */
 		} else {
 			if(verbose)
 				printf("rm %s\n", target_path);
@@ -157,36 +158,66 @@ delete(struct dirnode* queue,
 	}
 }
 
-int
-main(int argc, const char** argv)
+void
+usage()
 {
-	if(argc != 4)
-		die("usage: %s [-S|-D|-R] target package\n", argv[0]);
+	die("usage: %s [-n] [-v] (-S|-D|-R) -t target -d package\n", argv0);
+}
+
+int
+main(int argc, char* argv[])
+{
+	argv0 = argv[0];
 	int create_flag = 0, delete_flag = 0;
-	if(!strcmp(argv[1], "-S"))
-		create_flag = 1;
-	else if(!strcmp(argv[1], "-D"))
-		delete_flag = 1;
-	else if(!strcmp(argv[1], "-R")) {
-		create_flag = 1;
-		delete_flag = 1;
-	}
-	else die("argv[1] %s", argv[1]);
+	char* target_name = NULL;
+	char* root_name = NULL;
 
-	const char* target_name = argv[2];
-	const char* root_name = argv[3];
+	ARGBEGIN {
+	case 'S':
+		create_flag = 1;
+		break;
+	case 'D':
+		delete_flag = 1;
+		break;
+	case 'R':
+		create_flag = 1;
+		delete_flag = 1;
+		break;
+	case 't':
+		target_name = EARGF(usage());
+		break;
+	case 'd':
+		root_name = EARGF(usage());
+		break;
+	case 'v':
+		verbose = 1;
+		break;
+	case 'n':
+		dry_run = 1;
+		break;
+	default:
+		usage();
+	} ARGEND;
+
 	struct stat sb;
-	if(!(stat(target_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
-		die("not a directory %s", target_name);
-	if(!(stat(root_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
-		die("not a directory %s", root_name);
-
-
+	char* orig_root_name = root_name;
+	char* orig_target_name = target_name;
+	
+	root_name = realpath(orig_root_name, NULL);
+	if(!(root_name && stat(root_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
+		die("not a directory %s", orig_root_name);
+	
+	target_name = realpath(orig_target_name, NULL);
+	if(!(target_name && stat(target_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
+		die("not a directory %s", orig_target_name);
+	
 	struct dirnode* queue = get_queue(root_name);
 
 	if(delete_flag)
 		delete(queue, root_name, target_name);
 	if(create_flag)
 		create(queue, root_name, target_name);
+	free(root_name);
+	free(target_name);
 	free_queue(queue);
 }
