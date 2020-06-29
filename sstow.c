@@ -24,130 +24,136 @@ die(const char *errstr, ...)
 char*
 join(const char* s1, const char* s2)
 {
-	size_t len = strlen(s1) + strlen(s2) + 2; /* / and null */
-	char* str = malloc(len);
-	if(!str)
-		die("malloc join %s %s", s1, s2);
-	strcpy(str, s1);
-	strcat(str, "/");
-	strcat(str, s2);
+	size_t len1 = strlen(s1);
+	size_t len2 = strlen(s2);
+	char* str;
+	if(!len1 || !len2) {
+		str = malloc(len1 + len2 + 1);
+		if(!str)
+			die("malloc join %s %s", s1, s2);
+		strcpy(str, s1);
+		strcat(str, s2);
+	}
+	else {
+		str = malloc(len1 + len2 + 2);
+		if(!str)
+			die("malloc join %s %s", s1, s2);
+		strcpy(str, s1);
+		strcat(str, "/");
+		strcat(str, s2);
+	}
 	return str;
 }
 
-void
-iter_dirs_bf(const char* root_name,
-	  const char* target_name,
-	  void (*func)(const struct dirent* d,
-		       const struct stat* sb,
-		       const char* root_d_name,
-		       const char* target_d_name))
+struct dirnode {
+	struct dirnode* prev;
+	struct dirnode* next;
+	char* relpath;
+};
+
+struct dirnode*
+get_queue(const char* root_name)
 {
-	DIR* root = opendir(root_name);
-	if(!root)
-		die("opendir %s", root_name);
-	struct dirent* d;
-	struct stat sb;
-	while((d = readdir(root))) {
-		if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
-			continue;
-		char* root_d_name = join(root_name, d->d_name);
-		char* target_d_name = join(target_name, d->d_name);
-		if(lstat(root_d_name, &sb) == -1)
-			die("lstat %s", d->d_name);
-		func(d, &sb, root_d_name, target_d_name);
-		free(target_d_name);
-		free(root_d_name);
-	}
-	rewinddir(root);
-	while((d = readdir(root))) {
-		if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
-			continue;
-		char* root_d_name = join(root_name, d->d_name);
-		char* target_d_name = join(target_name, d->d_name);
-		if(lstat(root_d_name, &sb) == -1)
-			die("lstat %s", d->d_name);
-		switch(sb.st_mode & S_IFMT) {
-		case S_IFDIR:
-			iter_dirs_bf(root_d_name, target_d_name, func);
-		break;
+	struct dirnode* root_dirnode = malloc(sizeof(*root_dirnode));
+	root_dirnode->prev = root_dirnode;
+	root_dirnode->next = root_dirnode;
+	root_dirnode->relpath = calloc(1, 1);
+	struct dirnode* current = root_dirnode;
+	struct dirnode* last = root_dirnode;
+	do {
+		char* full_path = join(root_name, current->relpath);
+		DIR* dir = opendir(full_path);
+		if(dir) { 
+			struct dirent* d;
+			while((d = readdir(dir))) {
+				if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
+					continue;
+				struct dirnode* new = malloc(sizeof(*new));
+				struct dirnode* after = last->next;
+				last->next = new;
+				new->prev = last;
+				new->next = after;
+				after->prev = new;
+				last = new;
+				new->relpath = join(current->relpath, d->d_name);
+			}
 		}
-		free(target_d_name);
-		free(root_d_name);
-	}
-	closedir(root);
+		current = current->next;
+		free(full_path);
+		closedir(dir);
+	} while(current != root_dirnode);
+
+	return root_dirnode;
 }
 
 void
-create(const struct dirent* d,
-       const struct stat* sb,
-       const char* root_d_name,
-       const char* target_d_name)
+free_queue(struct dirnode* queue)
 {
-	(void)d;
-	switch(sb->st_mode & S_IFMT) {
-	case S_IFDIR:;
-		if(verbose)
-			printf("mkdir %s\n", target_d_name);
-		if(!dry_run)
-			mkdir(target_d_name, sb->st_mode);
-	break;
-	default:
-		if(verbose)
-			printf("%s -> %s\n", root_d_name, target_d_name);
-		if(!dry_run)
-			symlink(root_d_name, target_d_name);
+	struct dirnode* curr;
+	for(curr = queue->next; curr != queue;) {
+		free(curr->relpath);
+		curr = curr->next;
+		free(curr->prev);
 	}
+	free(queue->relpath);
+	free(queue);
 }
 
 void
-iter_dirs_df(const char* root_name,
-	  const char* target_name,
-	  void (*func)(const struct dirent* d,
-		       const struct stat* sb,
-		       const char* root_d_name,
-		       const char* target_d_name))
+create(struct dirnode* queue,
+       const char* root_name,
+       const char* target_name)
 {
-	DIR* root = opendir(root_name);
-	if(!root)
-		die("opendir %s", root_name);
-	struct dirent* d;
 	struct stat sb;
-	while((d = readdir(root))) {
-		if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
-			continue;
-		char* root_d_name = join(root_name, d->d_name);
-		char* target_d_name = join(target_name, d->d_name);
-		if(lstat(root_d_name, &sb) == -1)
-			die("lstat %s", d->d_name);
-		if((sb.st_mode & S_IFMT) == S_IFDIR)
-			iter_dirs_df(root_d_name, target_d_name, func);
-		func(d, &sb, root_d_name, target_d_name);
-		free(target_d_name);
-		free(root_d_name);
+	struct dirnode* curr;
+	for(curr = queue->next; curr != queue; curr = curr->next) {
+		char* root_path = join(root_name, curr->relpath);
+		char* target_path = join(target_name, curr->relpath);
+		if(lstat(root_path, &sb) == -1)
+			die("lstat %s", root_path);
+		if(S_ISDIR(sb.st_mode)) {
+			if(verbose)
+				printf("mkdir %s\n", target_path);
+			if(!dry_run)
+				mkdir(target_path, sb.st_mode);
+		} else {
+			if(verbose)
+				printf("%s -> %s\n", root_path, target_path);
+			if(!dry_run)
+				symlink(root_path, target_path);
+		}
+		free(root_path);
+		free(target_path);
 	}
-	closedir(root);
 }
 
 void
-delete(const struct dirent* d,
-       const struct stat* sb,
-       const char* root_d_name,
-       const char* target_d_name)
+delete(struct dirnode* queue,
+       const char* root_name,
+       const char* target_name)
 {
-	(void)d;
-	(void)root_d_name;
-	switch(sb->st_mode & S_IFMT) {
-	case S_IFDIR:;
-		if(verbose)
-			printf("rm -d %s\n", target_d_name);
-		if(!dry_run)
-			rmdir(target_d_name);
-	break;
-	default:
-		if(verbose)
-			printf("rm %s\n", target_d_name);
-		if(!dry_run)
-			unlink(target_d_name);
+	struct stat sb;
+	struct dirnode* curr;
+	for(curr = queue->prev; curr != queue; curr = curr->prev) {
+		char* root_path = join(root_name, curr->relpath);
+		char* target_path = join(target_name, curr->relpath);
+		if(lstat(root_path, &sb) == -1)
+			die("lstat %s", root_path);
+		if(S_ISDIR(sb.st_mode)) {
+			if(verbose)
+				printf("rm -d %s\n", target_path);
+			if(!dry_run)
+				if(rmdir(target_path) == -1)
+					die("rmdir %s", target_path);
+		} else {
+			if(verbose)
+				printf("rm %s\n", target_path);
+			if(!dry_run)
+				if(unlink(target_path) == -1)
+					die("unlink %s", target_path);
+		}
+		free(root_path);
+		free(target_path);
 	}
 }
 
@@ -169,9 +175,18 @@ main(int argc, const char** argv)
 
 	const char* target_name = argv[2];
 	const char* root_name = argv[3];
+	struct stat sb;
+	if(!(stat(target_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
+		die("not a directory %s", target_name);
+	if(!(stat(root_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
+		die("not a directory %s", root_name);
+
+
+	struct dirnode* queue = get_queue(root_name);
 
 	if(delete_flag)
-		iter_dirs_df(root_name, target_name, delete);
+		delete(queue, root_name, target_name);
 	if(create_flag)
-		iter_dirs_bf(root_name, target_name, create);
+		create(queue, root_name, target_name);
+	free_queue(queue);
 }
