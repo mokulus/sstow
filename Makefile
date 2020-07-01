@@ -1,5 +1,5 @@
 sstow: sstow.c
-	$(CC) -D_DEFAULT_SOURCE -g -Wall -Wextra -pedantic -std=c99 -o sstow sstow.c
+	$(CC) $(CFLAGS) -O2 -D_DEFAULT_SOURCE -g -Wall -Wextra -pedantic -std=c99 -o sstow sstow.c
 
 clean:
 	rm -rf sstow
