@@ -125,7 +125,7 @@ create(struct dirlist* dl,
 			die("lstat %s", root_path);
 		if(S_ISDIR(sb.st_mode)) {
 			if(verbose)
-				printf("mkdir %s\n", target_path);
+				printf("mkdir -p %s\n", target_path);
 			if(!dry_run)
 				mkdir(target_path, sb.st_mode);
 		} else {
@@ -171,7 +171,7 @@ delete(struct dirlist* dl,
 void
 usage()
 {
-	die("usage: %s [-n] [-v] (-S|-D|-R) -t target -d package\n", argv0);
+	die("usage: %s [-n] [-v] [-S|-D|-R] [-t target] package\n", argv0);
 }
 
 char*
@@ -193,9 +193,9 @@ main(int argc, char* argv[])
 {
 	(void)argc;
 	argv0 = argv[0];
-	int create_flag = 0, delete_flag = 0;
-	char* target_name = NULL;
-	char* root_name = NULL;
+	int create_flag = 1, delete_flag = 0;
+	const char* target_name = "..";
+	const char* root_name = NULL;
 
 	while(*++argv) {
 		if(argv[0][0] == '-') {
@@ -206,6 +206,7 @@ main(int argc, char* argv[])
 				create_flag = 1;
 				break;
 			case 'D':
+				create_flag = 0;
 				delete_flag = 1;
 				break;
 			case 'R':
@@ -214,10 +215,6 @@ main(int argc, char* argv[])
 				break;
 			case 't':
 				target_name = argv[1];
-				++argv;
-				break;
-			case 'd':
-				root_name = argv[1];
 				++argv;
 				break;
 			case 'v':
@@ -230,7 +227,12 @@ main(int argc, char* argv[])
 				usage();
 			}
 		}
-		else usage();
+		else {
+			if(!root_name)
+				root_name = argv[0];
+			else
+				usage();
+		}
 	}
 
 	if(!create_flag && !delete_flag)
