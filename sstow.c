@@ -105,9 +105,9 @@ dirlist_fill(struct dirlist* dl, const char* root_name)
 					continue;
 				dirlist_add(dl, join(dl->data[i], d->d_name));
 			}
+			closedir(dir);
 		}
 		free(full_path);
-		closedir(dir);
 	} while(++i < dl->size);
 }
 
