@@ -52,12 +52,6 @@ join(const char* s1, const char* s2)
 	return str;
 }
 
-struct dirnode {
-	struct dirnode* prev;
-	struct dirnode* next;
-	char* relpath;
-};
-
 struct dirlist {
 	char** data;
 	size_t size;
