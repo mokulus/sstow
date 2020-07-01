@@ -6,7 +6,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "arg.h"
 
 char* argv0;
 int verbose = 0;
