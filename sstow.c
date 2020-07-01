@@ -58,64 +58,76 @@ struct dirnode {
 	char* relpath;
 };
 
-struct dirnode*
-get_queue(const char* root_name)
+struct dirlist {
+	char** data;
+	size_t size;
+	size_t cap;
+};
+
+struct dirlist*
+dirlist_make()
 {
-	struct dirnode* root_dirnode = emalloc(sizeof(*root_dirnode));
-	root_dirnode->prev = root_dirnode;
-	root_dirnode->next = root_dirnode;
-	root_dirnode->relpath = NULL;
-	struct dirnode* current = root_dirnode;
-	struct dirnode* last = root_dirnode;
+	struct dirlist* dl = emalloc(sizeof(*dl));
+	dl->cap = 32;
+	dl->size = 0;
+	dl->data = emalloc(32 * sizeof(char*));
+	return dl;
+}
+
+void
+dirlist_delete(struct dirlist* dl)
+{
+	size_t i;
+	for(i = 0; i < dl->size; ++i)
+		free(dl->data[i]);
+	free(dl->data);
+	free(dl);
+}
+
+void
+dirlist_add(struct dirlist* dl, char* dir)
+{
+	if(dl->size >= dl->cap) {
+		dl->cap = dl->cap * 3 / 2;
+		dl->data = realloc(dl->data, dl->cap * sizeof(char*));
+		if(!dl->data)
+			die("realloc %d bytes", dl->cap * sizeof(char*));
+	}
+
+	dl->data[dl->size++] = dir;
+}
+
+void
+dirlist_fill(struct dirlist* dl, const char* root_name)
+{
+	size_t i = 0;
+	dirlist_add(dl, NULL);
 	do {
-		char* full_path = join(root_name, current->relpath);
+		char* full_path = join(root_name, dl->data[i]);
 		DIR* dir = opendir(full_path);
 		if(dir) { 
 			struct dirent* d;
 			while((d = readdir(dir))) {
 				if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
 					continue;
-				struct dirnode* new = emalloc(sizeof(*new));
-				struct dirnode* after = last->next;
-				last->next = new;
-				new->prev = last;
-				new->next = after;
-				after->prev = new;
-				last = new;
-				new->relpath = join(current->relpath, d->d_name);
+				dirlist_add(dl, join(dl->data[i], d->d_name));
 			}
 		}
-		current = current->next;
 		free(full_path);
 		closedir(dir);
-	} while(current != root_dirnode);
-
-	return root_dirnode;
+	} while(++i < dl->size);
 }
 
 void
-free_queue(struct dirnode* queue)
-{
-	struct dirnode* curr;
-	for(curr = queue->next; curr != queue;) {
-		free(curr->relpath);
-		curr = curr->next;
-		free(curr->prev);
-	}
-	free(queue->relpath);
-	free(queue);
-}
-
-void
-create(struct dirnode* queue,
+create(struct dirlist* dl,
        const char* root_name,
        const char* target_name)
 {
 	struct stat sb;
-	struct dirnode* curr;
-	for(curr = queue->next; curr != queue; curr = curr->next) {
-		char* root_path = join(root_name, curr->relpath);
-		char* target_path = join(target_name, curr->relpath);
+	size_t i;
+	for(i = 0; i < dl->size; ++i) {
+		char* root_path = join(root_name, dl->data[i]);
+		char* target_path = join(target_name, dl->data[i]);
 		if(lstat(root_path, &sb) == -1)
 			die("lstat %s", root_path);
 		if(S_ISDIR(sb.st_mode)) {
@@ -135,15 +147,16 @@ create(struct dirnode* queue,
 }
 
 void
-delete(struct dirnode* queue,
+delete(struct dirlist* dl,
        const char* root_name,
        const char* target_name)
 {
 	struct stat sb;
-	struct dirnode* curr;
-	for(curr = queue->prev; curr != queue; curr = curr->prev) {
-		char* root_path = join(root_name, curr->relpath);
-		char* target_path = join(target_name, curr->relpath);
+	size_t i;
+	for(i = 0; i < dl->size; ++i) {
+		char* current = dl->data[dl->size - 1 - i];
+		char* root_path = join(root_name, current);
+		char* target_path = join(target_name, current);
 		if(lstat(root_path, &sb) == -1)
 			die("lstat %s", root_path);
 		if(S_ISDIR(sb.st_mode)) {
@@ -231,13 +244,14 @@ main(int argc, char* argv[])
 		usage();
 	char* root_name_abs = process_path(root_name);	
 	char* target_name_abs = process_path(target_name);	
-	struct dirnode* queue = get_queue(root_name);
+	struct dirlist* dl = dirlist_make();
+	dirlist_fill(dl, root_name_abs);
 
 	if(delete_flag)
-		delete(queue, root_name_abs, target_name_abs);
+		delete(dl, root_name_abs, target_name_abs);
 	if(create_flag)
-		create(queue, root_name_abs, target_name_abs);
+		create(dl, root_name_abs, target_name_abs);
 	free(root_name_abs);
 	free(target_name_abs);
-	free_queue(queue);
+	dirlist_delete(dl);
 }
