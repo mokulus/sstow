@@ -9,7 +9,6 @@
 #include "arg.h"
 
 char* argv0;
-
 int verbose = 0;
 int dry_run = 0;
 
@@ -23,26 +22,32 @@ die(const char *errstr, ...)
 	exit(1);
 }
 
+void *
+emalloc(size_t n)
+{
+	void *p = malloc(n);
+	if (!p)
+		die("emalloc, out of memory");
+	return p;
+}
+
 char*
 join(const char* s1, const char* s2)
 {
-	size_t len1 = strlen(s1);
-	size_t len2 = strlen(s2);
 	char* str;
-	if(!len1 || !len2) {
-		str = malloc(len1 + len2 + 1);
-		if(!str)
-			die("malloc join %s %s", s1, s2);
-		strcpy(str, s1);
-		strcat(str, s2);
+	if(!s1) {
+		str = strdup(s2);
+	}
+	else if(!s2) {
+		str = strdup(s1);
 	}
 	else {
-		str = malloc(len1 + len2 + 2);
-		if(!str)
-			die("malloc join %s %s", s1, s2);
+		size_t len1 = strlen(s1);
+		size_t len2 = strlen(s2);
+		str = emalloc(len1 + len2 + 2);
 		strcpy(str, s1);
-		strcat(str, "/");
-		strcat(str, s2);
+		str[len1] = '/';
+		strcpy(str + len1 + 1, s2);
 	}
 	return str;
 }
@@ -56,10 +61,10 @@ struct dirnode {
 struct dirnode*
 get_queue(const char* root_name)
 {
-	struct dirnode* root_dirnode = malloc(sizeof(*root_dirnode));
+	struct dirnode* root_dirnode = emalloc(sizeof(*root_dirnode));
 	root_dirnode->prev = root_dirnode;
 	root_dirnode->next = root_dirnode;
-	root_dirnode->relpath = calloc(1, 1);
+	root_dirnode->relpath = NULL;
 	struct dirnode* current = root_dirnode;
 	struct dirnode* last = root_dirnode;
 	do {
@@ -70,7 +75,7 @@ get_queue(const char* root_name)
 			while((d = readdir(dir))) {
 				if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
 					continue;
-				struct dirnode* new = malloc(sizeof(*new));
+				struct dirnode* new = emalloc(sizeof(*new));
 				struct dirnode* after = last->next;
 				last->next = new;
 				new->prev = last;
@@ -145,13 +150,12 @@ delete(struct dirnode* queue,
 			if(verbose)
 				printf("rm -d %s\n", target_path);
 			if(!dry_run)
-				rmdir(target_path); /* can fail */
+				rmdir(target_path);
 		} else {
 			if(verbose)
 				printf("rm %s\n", target_path);
 			if(!dry_run)
-				if(unlink(target_path) == -1)
-					die("unlink %s", target_path);
+				unlink(target_path);
 		}
 		free(root_path);
 		free(target_path);
@@ -164,60 +168,76 @@ usage()
 	die("usage: %s [-n] [-v] (-S|-D|-R) -t target -d package\n", argv0);
 }
 
+char*
+process_path(const char* path_name)
+{
+	if(!path_name)
+		usage();
+	char* abs = realpath(path_name, NULL);
+	if(!abs)
+		die("file doesn't exist: %s", path_name);
+	struct stat sb;
+	if(!(stat(abs, &sb) == 0 && S_ISDIR(sb.st_mode)))
+		die("not a directory: %s", abs);
+	return abs;
+}
+
 int
 main(int argc, char* argv[])
 {
+	(void)argc;
 	argv0 = argv[0];
 	int create_flag = 0, delete_flag = 0;
 	char* target_name = NULL;
 	char* root_name = NULL;
 
-	ARGBEGIN {
-	case 'S':
-		create_flag = 1;
-		break;
-	case 'D':
-		delete_flag = 1;
-		break;
-	case 'R':
-		create_flag = 1;
-		delete_flag = 1;
-		break;
-	case 't':
-		target_name = EARGF(usage());
-		break;
-	case 'd':
-		root_name = EARGF(usage());
-		break;
-	case 'v':
-		verbose = 1;
-		break;
-	case 'n':
-		dry_run = 1;
-		break;
-	default:
-		usage();
-	} ARGEND;
+	while(*++argv) {
+		if(argv[0][0] == '-') {
+			if(argv[0][2] != '\0')
+				usage();
+			switch(argv[0][1]) {
+			case 'S':
+				create_flag = 1;
+				break;
+			case 'D':
+				delete_flag = 1;
+				break;
+			case 'R':
+				create_flag = 1;
+				delete_flag = 1;
+				break;
+			case 't':
+				target_name = argv[1];
+				++argv;
+				break;
+			case 'd':
+				root_name = argv[1];
+				++argv;
+				break;
+			case 'v':
+				verbose = 1;
+				break;
+			case 'n':
+				dry_run = 1;
+				break;
+			default:
+				usage();
+			}
+		}
+		else usage();
+	}
 
-	struct stat sb;
-	char* orig_root_name = root_name;
-	char* orig_target_name = target_name;
-	
-	root_name = realpath(orig_root_name, NULL);
-	if(!(root_name && stat(root_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
-		die("not a directory %s", orig_root_name);
-	
-	target_name = realpath(orig_target_name, NULL);
-	if(!(target_name && stat(target_name, &sb) == 0 && S_ISDIR(sb.st_mode)))
-		die("not a directory %s", orig_target_name);
-	
+	if(!create_flag && !delete_flag)
+		usage();
+	char* root_name_abs = process_path(root_name);	
+	char* target_name_abs = process_path(target_name);	
 	struct dirnode* queue = get_queue(root_name);
 
 	if(delete_flag)
-		delete(queue, root_name, target_name);
+		delete(queue, root_name_abs, target_name_abs);
 	if(create_flag)
-		create(queue, root_name, target_name);
-	free(root_name);
-	free(target_name);
+		create(queue, root_name_abs, target_name_abs);
+	free(root_name_abs);
+	free(target_name_abs);
 	free_queue(queue);
 }
