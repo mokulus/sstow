@@ -34,19 +34,26 @@ char*
 join(const char* s1, const char* s2)
 {
 	char* str;
-	if(!s1) {
-		str = strdup(s2);
-	}
-	else if(!s2) {
-		str = strdup(s1);
+	if(s1) {
+		if(s2) {
+			size_t len1 = strlen(s1);
+			size_t len2 = strlen(s2);
+			str = emalloc(len1 + len2 + 2);
+			strcpy(str, s1);
+			str[len1] = '/';
+			strcpy(str + len1 + 1, s2);
+		}
+		else {
+			str = strdup(s1);
+		}
 	}
 	else {
-		size_t len1 = strlen(s1);
-		size_t len2 = strlen(s2);
-		str = emalloc(len1 + len2 + 2);
-		strcpy(str, s1);
-		str[len1] = '/';
-		strcpy(str + len1 + 1, s2);
+		if(s2) {
+			str = strdup(s2);
+		}
+		else {
+			str = NULL;
+		}
 	}
 	return str;
 }
@@ -63,7 +70,7 @@ dirlist_make()
 	struct dirlist* dl = emalloc(sizeof(*dl));
 	dl->cap = 32;
 	dl->size = 0;
-	dl->data = emalloc(32 * sizeof(char*));
+	dl->data = emalloc(dl->cap * sizeof(char*));
 	return dl;
 }
 
@@ -132,7 +139,7 @@ create(struct dirlist* dl,
 			if(verbose)
 				printf("%s -> %s\n", root_path, target_path);
 			if(!dry_run)
-				symlink(root_path, target_path);
+				link(root_path, target_path);
 		}
 		free(root_path);
 		free(target_path);
@@ -160,8 +167,12 @@ delete(struct dirlist* dl,
 		} else {
 			if(verbose)
 				printf("rm %s\n", target_path);
-			if(!dry_run)
-				unlink(target_path);
+			if(!dry_run) {
+    				struct stat target_sb;
+    				if(lstat(target_path, &target_sb) == 0
+				   && target_sb.st_ino == sb.st_ino)
+    					unlink(target_path);
+			}
 		}
 		free(root_path);
 		free(target_path);
