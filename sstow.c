@@ -105,7 +105,7 @@ dirlist_fill(struct dirlist* dl, const char* root_name)
 	do {
 		char* full_path = join(root_name, dl->data[i]);
 		DIR* dir = opendir(full_path);
-		if(dir) { 
+		if(dir) {
 			struct dirent* d;
 			while((d = readdir(dir))) {
 				if(!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
@@ -139,7 +139,7 @@ create(struct dirlist* dl,
 			if(verbose)
 				printf("%s -> %s\n", root_path, target_path);
 			if(!dry_run)
-				link(root_path, target_path);
+				symlink(root_path, target_path);
 		}
 		free(root_path);
 		free(target_path);
@@ -248,8 +248,8 @@ main(int argc, char* argv[])
 
 	if(!create_flag && !delete_flag)
 		usage();
-	char* root_name_abs = process_path(root_name);	
-	char* target_name_abs = process_path(target_name);	
+	char* root_name_abs = process_path(root_name);
+	char* target_name_abs = process_path(target_name);
 	struct dirlist* dl = dirlist_make();
 	dirlist_fill(dl, root_name_abs);
 
