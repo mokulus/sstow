@@ -168,10 +168,7 @@ delete(struct dirlist* dl,
 			if(verbose)
 				printf("rm %s\n", target_path);
 			if(!dry_run) {
-    				struct stat target_sb;
-    				if(lstat(target_path, &target_sb) == 0
-				   && target_sb.st_ino == sb.st_ino)
-    					unlink(target_path);
+    				unlink(target_path);
 			}
 		}
 		free(root_path);
