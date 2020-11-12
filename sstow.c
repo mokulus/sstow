@@ -5,12 +5,14 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <bsd/string.h>
 #include <unistd.h>
 
 char* argv0;
 int verbose = 0;
 int dry_run = 0;
 
+void die(const char *errstr, ...) __attribute__ ((noreturn));
 void
 die(const char *errstr, ...)
 {
@@ -38,10 +40,11 @@ join(const char* s1, const char* s2)
 		if(s2) {
 			size_t len1 = strlen(s1);
 			size_t len2 = strlen(s2);
-			str = emalloc(len1 + len2 + 2);
-			strcpy(str, s1);
+			size_t buf_size = len1 + len2 + 2;
+			str = emalloc(buf_size);
+			strlcpy(str, s1, buf_size);
 			str[len1] = '/';
-			strcpy(str + len1 + 1, s2);
+			strlcpy(str + len1 + 1, s2, buf_size);
 		}
 		else {
 			str = strdup(s1);
