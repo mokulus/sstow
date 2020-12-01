@@ -95,7 +95,8 @@ void dirlist_fill(struct dirlist *dl, const char *root_name) {
                         struct dirent *d;
                         while ((d = readdir(dir))) {
                                 if (!strcmp(d->d_name, ".") ||
-                                    !strcmp(d->d_name, ".."))
+                                    !strcmp(d->d_name, "..") ||
+				    !strncmp(d->d_name, ".git", strlen(".git")))
                                         continue;
                                 dirlist_add(dl, join(dl->data[i], d->d_name));
                         }
